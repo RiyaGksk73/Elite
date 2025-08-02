@@ -6,66 +6,66 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { action, email, password, name } = body
 
-    const db = DatabaseService.getInstance()
+    if (!action || !email || !password) {
+      return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
+    }
 
     if (action === "login") {
-      // Simple login - any email/password combination works
-      let user = await db.getUserByEmail(email)
+      console.log("🔐 Login attempt for:", email)
+
+      const user = await DatabaseService.authenticateUser(email, password)
 
       if (!user) {
-        // Auto-create user if doesn't exist
-        const role =
-          email === "admin@quickdesk.com" ? "admin" : email.includes("support") ? "support_agent" : "end_user"
-
-        user = await db.createUser({
-          email,
-          name: name || email.split("@")[0],
-          role,
-          password, // In real app, this would be hashed
-        })
+        return NextResponse.json({ error: "Invalid credentials" }, { status: 401 })
       }
 
       return NextResponse.json({
         success: true,
         user: {
           id: user.id,
-          email: user.email,
           name: user.name,
+          email: user.email,
           role: user.role,
+          status: user.status,
+          profile: user.profile,
         },
       })
     }
 
     if (action === "register") {
+      console.log("📝 Registration attempt for:", email)
+
       // Check if user already exists
-      const existingUser = await db.getUserByEmail(email)
+      const existingUser = await DatabaseService.getUserByEmail(email)
       if (existingUser) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: "User already exists",
-          },
-          { status: 400 },
-        )
+        return NextResponse.json({ error: "User already exists" }, { status: 409 })
       }
 
-      // Determine role based on email
-      const role = email === "admin@quickdesk.com" ? "admin" : email.includes("support") ? "support_agent" : "end_user"
-
-      const user = await db.createUser({
+      // Create new user
+      const newUser = await DatabaseService.createUser({
+        id: `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        name,
         email,
-        name: name || email.split("@")[0],
-        role,
-        password, // In real app, this would be hashed
+        password,
+        role: email.includes("admin") ? "admin" : email.includes("agent") ? "support_agent" : "end_user",
+        created_at: new Date().toISOString(),
+        status: "active",
+        profile: {
+          phone: "",
+          department: "",
+          avatar: `/placeholder.svg?height=40&width=40&query=${name}`,
+        },
       })
 
       return NextResponse.json({
         success: true,
         user: {
-          id: user.id,
-          email: user.email,
-          name: user.name,
-          role: user.role,
+          id: newUser.id,
+          name: newUser.name,
+          email: newUser.email,
+          role: newUser.role,
+          status: newUser.status,
+          profile: newUser.profile,
         },
       })
     }
@@ -74,21 +74,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true })
     }
 
-    return NextResponse.json(
-      {
-        success: false,
-        error: "Invalid action",
-      },
-      { status: 400 },
-    )
+    return NextResponse.json({ error: "Invalid action" }, { status: 400 })
   } catch (error) {
-    console.error("Auth API error:", error)
-    return NextResponse.json(
-      {
-        success: false,
-        error: "Internal server error",
-      },
-      { status: 500 },
-    )
+    console.error("❌ Auth API error:", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+  }
+}
+
+export async function GET(request: NextRequest) {
+  try {
+    // For simplified auth, we'll just return success
+    // In a real app, you might check session storage or other mechanisms
+    return NextResponse.json({ success: true })
+  } catch (error) {
+    console.error("❌ Auth verification error:", error)
+    return NextResponse.json({ error: "Auth check failed" }, { status: 500 })
   }
 }

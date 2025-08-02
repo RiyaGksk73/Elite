@@ -1,160 +1,210 @@
-// API client for making requests to our backend
+export interface User {
+  id: string
+  name: string
+  email: string
+  role: "end_user" | "support_agent" | "admin"
+  status: "active" | "inactive"
+  profile?: {
+    phone?: string
+    department?: string
+    avatar?: string
+  }
+}
+
+export interface Ticket {
+  id: string
+  subject: string
+  description: string
+  status: "open" | "in_progress" | "resolved" | "closed"
+  category: string
+  priority: "low" | "medium" | "high"
+  created_by: string
+  assigned_to?: string
+  created_at: string
+  updated_at: string
+  votes: number
+  comments_count: number
+  attachments?: string[]
+}
+
+export interface Comment {
+  id: string
+  ticket_id: string
+  content: string
+  author_id: string
+  author_name: string
+  author_role: string
+  created_at: string
+}
+
+export interface Category {
+  id: string
+  name: string
+  description: string
+  created_at: string
+  ticket_count: number
+  color?: string
+}
+
 class ApiClient {
   private baseUrl = "/api"
 
-  async request(endpoint: string, options: RequestInit = {}) {
-    const url = `${this.baseUrl}${endpoint}`
-
-    const config: RequestInit = {
-      headers: {
-        "Content-Type": "application/json",
-        ...options.headers,
-      },
-      ...options,
-    }
-
-    try {
-      const response = await fetch(url, config)
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || "Request failed")
-      }
-
-      return data
-    } catch (error) {
-      console.error(`API request failed: ${endpoint}`, error)
-      throw error
-    }
-  }
-
-  // Auth methods
   async login(email: string, password: string) {
-    return this.request("/auth", {
+    const response = await fetch(`${this.baseUrl}/auth`, {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "login", email, password }),
     })
+
+    const data = await response.json()
+    if (!response.ok) {
+      throw new Error(data.error || "Login failed")
+    }
+
+    return data
   }
 
   async register(email: string, password: string, name: string) {
-    return this.request("/auth", {
+    const response = await fetch(`${this.baseUrl}/auth`, {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "register", email, password, name }),
     })
+
+    const data = await response.json()
+    if (!response.ok) {
+      throw new Error(data.error || "Registration failed")
+    }
+
+    return data
   }
 
   async logout() {
-    return this.request("/auth", {
+    const response = await fetch(`${this.baseUrl}/auth`, {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "logout" }),
     })
+
+    const data = await response.json()
+    if (!response.ok) {
+      throw new Error(data.error || "Logout failed")
+    }
+
+    return data
   }
 
-  // Ticket methods
-  async getTickets(
-    filters: {
-      userId?: string
-      userRole?: string
-      status?: string
-      category?: string
-      search?: string
-    } = {},
-  ) {
-    const params = new URLSearchParams()
-    Object.entries(filters).forEach(([key, value]) => {
-      if (value) params.append(key, value)
-    })
+  async getTickets(userId?: string): Promise<{ tickets: Ticket[] }> {
+    const url = userId ? `${this.baseUrl}/tickets?userId=${userId}` : `${this.baseUrl}/tickets`
+    const response = await fetch(url)
 
-    return this.request(`/tickets?${params.toString()}`)
+    const data = await response.json()
+    if (!response.ok) {
+      throw new Error(data.error || "Failed to get tickets")
+    }
+
+    return data
   }
 
-  async getTicket(id: string) {
-    return this.request(`/tickets/${id}`)
-  }
-
-  async createTicket(ticket: {
-    title: string
+  async createTicket(ticketData: {
+    subject: string
     description: string
-    category?: string
-    priority?: string
-    userId: string
-    userEmail: string
-    userName: string
-  }) {
-    return this.request("/tickets", {
+    category: string
+    priority: string
+    created_by: string
+  }): Promise<{ ticket: Ticket }> {
+    const response = await fetch(`${this.baseUrl}/tickets`, {
       method: "POST",
-      body: JSON.stringify(ticket),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(ticketData),
     })
+
+    const data = await response.json()
+    if (!response.ok) {
+      throw new Error(data.error || "Failed to create ticket")
+    }
+
+    return data
   }
 
-  async updateTicket(
-    id: string,
-    updates: {
-      status?: string
-      priority?: string
-      assignedTo?: string
-      resolution?: string
-    },
-  ) {
-    return this.request(`/tickets/${id}`, {
+  async updateTicket(id: string, updates: Partial<Ticket>): Promise<{ ticket: Ticket }> {
+    const response = await fetch(`${this.baseUrl}/tickets/${id}`, {
       method: "PUT",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(updates),
     })
+
+    const data = await response.json()
+    if (!response.ok) {
+      throw new Error(data.error || "Failed to update ticket")
+    }
+
+    return data
   }
 
-  async deleteTicket(id: string) {
-    return this.request(`/tickets/${id}`, {
+  async deleteTicket(id: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/tickets/${id}`, {
       method: "DELETE",
     })
+
+    const data = await response.json()
+    if (!response.ok) {
+      throw new Error(data.error || "Failed to delete ticket")
+    }
   }
 
-  // Comment methods
-  async getComments(ticketId: string) {
-    return this.request(`/comments?ticketId=${ticketId}`)
+  async getComments(ticketId: string): Promise<{ comments: Comment[] }> {
+    const response = await fetch(`${this.baseUrl}/comments?ticketId=${ticketId}`)
+
+    const data = await response.json()
+    if (!response.ok) {
+      throw new Error(data.error || "Failed to get comments")
+    }
+
+    return data
   }
 
-  async createComment(comment: {
-    ticketId: string
+  async createComment(commentData: {
+    ticket_id: string
     content: string
-    userId: string
-    userName: string
-    userRole: string
-  }) {
-    return this.request("/comments", {
+    author_id: string
+    author_name: string
+    author_role: string
+  }): Promise<{ comment: Comment }> {
+    const response = await fetch(`${this.baseUrl}/comments`, {
       method: "POST",
-      body: JSON.stringify(comment),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(commentData),
     })
+
+    const data = await response.json()
+    if (!response.ok) {
+      throw new Error(data.error || "Failed to create comment")
+    }
+
+    return data
   }
 
-  // User methods
-  async getUsers() {
-    return this.request("/users")
+  async getUsers(): Promise<{ users: User[] }> {
+    const response = await fetch(`${this.baseUrl}/users`)
+
+    const data = await response.json()
+    if (!response.ok) {
+      throw new Error(data.error || "Failed to get users")
+    }
+
+    return data
   }
 
-  async createUser(user: {
-    email: string
-    name: string
-    role: string
-  }) {
-    return this.request("/users", {
-      method: "POST",
-      body: JSON.stringify(user),
-    })
-  }
+  async getCategories(): Promise<{ categories: Category[] }> {
+    const response = await fetch(`${this.baseUrl}/categories`)
 
-  // Category methods
-  async getCategories() {
-    return this.request("/categories")
-  }
+    const data = await response.json()
+    if (!response.ok) {
+      throw new Error(data.error || "Failed to get categories")
+    }
 
-  async createCategory(category: {
-    name: string
-    description?: string
-  }) {
-    return this.request("/categories", {
-      method: "POST",
-      body: JSON.stringify(category),
-    })
+    return data
   }
 }
 
