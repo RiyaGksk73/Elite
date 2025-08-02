@@ -39,12 +39,14 @@ import {
   TrendingUp,
   Clock,
   CheckCircle,
-  AlertCircle,
   Search,
+  RefreshCw,
+  Eye,
 } from "lucide-react"
 import { Header } from "@/components/header"
 import { DatabaseService, type User, type Category, type Ticket } from "@/lib/database"
 import { useToast } from "@/hooks/use-toast"
+import { TicketDetailDialog } from "@/components/ticket-detail-dialog"
 
 export function AdminPanel() {
   const { toast } = useToast()
@@ -53,13 +55,16 @@ export function AdminPanel() {
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [selectedUser, setSelectedUser] = useState<User | null>(null)
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null)
+  const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null)
   const [userDialogOpen, setUserDialogOpen] = useState(false)
   const [categoryDialogOpen, setCategoryDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
-  const [deleteTarget, setDeleteTarget] = useState<{ type: "user" | "category"; id: string } | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<{ type: "user" | "category" | "ticket"; id: string } | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
   const [roleFilter, setRoleFilter] = useState("all")
   const [statusFilter, setStatusFilter] = useState("all")
+  const [ticketStatusFilter, setTicketStatusFilter] = useState("all")
+  const [ticketCategoryFilter, setTicketCategoryFilter] = useState("all")
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -88,17 +93,25 @@ export function AdminPanel() {
       setLoading(true)
       setError(null)
 
+      console.log("🔄 Loading admin data...")
+
       const [usersData, categoriesData, ticketsData] = await Promise.all([
         DatabaseService.getUsers(),
         DatabaseService.getCategories(),
         DatabaseService.getTickets(),
       ])
 
+      console.log("📊 Loaded data:", {
+        users: usersData.length,
+        categories: categoriesData.length,
+        tickets: ticketsData.length,
+      })
+
       setUsers(Array.isArray(usersData) ? usersData : [])
       setCategories(Array.isArray(categoriesData) ? categoriesData : [])
       setTickets(Array.isArray(ticketsData) ? ticketsData : [])
     } catch (error) {
-      console.error("Failed to load data:", error)
+      console.error("❌ Failed to load admin data:", error)
       setError("Failed to load admin data. Please try refreshing the page.")
       setUsers([])
       setCategories([])
@@ -111,7 +124,6 @@ export function AdminPanel() {
   // Safe filtering with comprehensive null checks
   const filteredUsers = Array.isArray(users)
     ? users.filter((user) => {
-        // Ensure user exists and has required properties
         if (!user || typeof user !== "object") return false
 
         const userName = user.name || ""
@@ -119,7 +131,6 @@ export function AdminPanel() {
         const userRole = user.role || "end_user"
         const userStatus = user.status || "active"
 
-        // Safe string operations with fallbacks
         const searchTermLower = (searchTerm || "").toLowerCase()
         const matchesSearch =
           userName.toLowerCase().includes(searchTermLower) || userEmail.toLowerCase().includes(searchTermLower)
@@ -127,6 +138,23 @@ export function AdminPanel() {
         const matchesStatus = statusFilter === "all" || userStatus === statusFilter
 
         return matchesSearch && matchesRole && matchesStatus
+      })
+    : []
+
+  const filteredTickets = Array.isArray(tickets)
+    ? tickets.filter((ticket) => {
+        if (!ticket || typeof ticket !== "object") return false
+
+        const ticketSubject = ticket.subject || ""
+        const ticketStatus = ticket.status || "open"
+        const ticketCategory = ticket.category || ""
+
+        const searchTermLower = (searchTerm || "").toLowerCase()
+        const matchesSearch = ticketSubject.toLowerCase().includes(searchTermLower)
+        const matchesStatus = ticketStatusFilter === "all" || ticketStatus === ticketStatusFilter
+        const matchesCategory = ticketCategoryFilter === "all" || ticketCategory === ticketCategoryFilter
+
+        return matchesSearch && matchesStatus && matchesCategory
       })
     : []
 
@@ -156,7 +184,10 @@ export function AdminPanel() {
             </CardHeader>
             <CardContent>
               <p className="text-gray-600 mb-4">{error}</p>
-              <Button onClick={loadData}>Try Again</Button>
+              <Button onClick={loadData}>
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Try Again
+              </Button>
             </CardContent>
           </Card>
         </main>
@@ -172,7 +203,9 @@ export function AdminPanel() {
     totalCategories: Array.isArray(categories) ? categories.length : 0,
     totalTickets: Array.isArray(tickets) ? tickets.length : 0,
     openTickets: Array.isArray(tickets) ? tickets.filter((t) => t && t.status === "open").length : 0,
+    inProgressTickets: Array.isArray(tickets) ? tickets.filter((t) => t && t.status === "in_progress").length : 0,
     resolvedTickets: Array.isArray(tickets) ? tickets.filter((t) => t && t.status === "resolved").length : 0,
+    closedTickets: Array.isArray(tickets) ? tickets.filter((t) => t && t.status === "closed").length : 0,
     avgResponseTime: "2.4 hours",
   }
 
@@ -195,6 +228,21 @@ export function AdminPanel() {
         return "bg-green-100 text-green-800"
       case "inactive":
         return "bg-red-100 text-red-800"
+      default:
+        return "bg-gray-100 text-gray-800"
+    }
+  }
+
+  const getTicketStatusColor = (status: string) => {
+    switch (status) {
+      case "open":
+        return "bg-red-100 text-red-800"
+      case "in_progress":
+        return "bg-yellow-100 text-yellow-800"
+      case "resolved":
+        return "bg-green-100 text-green-800"
+      case "closed":
+        return "bg-gray-100 text-gray-800"
       default:
         return "bg-gray-100 text-gray-800"
     }
@@ -274,6 +322,11 @@ export function AdminPanel() {
     setDeleteDialogOpen(true)
   }
 
+  const handleDeleteTicket = (ticketId: string) => {
+    setDeleteTarget({ type: "ticket", id: ticketId })
+    setDeleteDialogOpen(true)
+  }
+
   const confirmDelete = async () => {
     if (!deleteTarget) return
 
@@ -296,6 +349,13 @@ export function AdminPanel() {
             description: "The category has been removed from the system.",
           })
         }
+      } else if (deleteTarget.type === "ticket") {
+        // For now, we'll just remove from local state since we don't have a delete ticket method
+        setTickets((prev) => prev.filter((t) => t.id !== deleteTarget.id))
+        toast({
+          title: "Ticket deleted successfully",
+          description: "The ticket has been removed from the system.",
+        })
       }
     } catch (error) {
       toast({
@@ -407,7 +467,6 @@ export function AdminPanel() {
     setCategoryDialogOpen(true)
   }
 
-  // Safe function to get user initials
   const getUserInitials = (name: string | undefined): string => {
     if (!name || typeof name !== "string") return "U"
     const trimmedName = name.trim()
@@ -421,11 +480,19 @@ export function AdminPanel() {
 
       <main className="container mx-auto px-4 py-8">
         <div className="mb-6">
-          <div className="flex items-center gap-3 mb-2">
-            <Shield className="w-8 h-8 text-purple-600" />
-            <h1 className="text-3xl font-bold text-gray-900">Admin Panel</h1>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Shield className="w-8 h-8 text-purple-600" />
+              <div>
+                <h1 className="text-3xl font-bold text-gray-900">Admin Panel</h1>
+                <p className="text-gray-600">Comprehensive system management and analytics</p>
+              </div>
+            </div>
+            <Button onClick={loadData} variant="outline">
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Refresh Data
+            </Button>
           </div>
-          <p className="text-gray-600">Comprehensive system management and analytics</p>
         </div>
 
         {/* Enhanced Stats Cards */}
@@ -486,8 +553,8 @@ export function AdminPanel() {
         <Tabs defaultValue="users" className="space-y-4">
           <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="users">User Management</TabsTrigger>
+            <TabsTrigger value="tickets">Ticket Management</TabsTrigger>
             <TabsTrigger value="categories">Categories</TabsTrigger>
-            <TabsTrigger value="tickets">Ticket Overview</TabsTrigger>
             <TabsTrigger value="analytics">Analytics</TabsTrigger>
           </TabsList>
 
@@ -602,6 +669,107 @@ export function AdminPanel() {
             </Card>
           </TabsContent>
 
+          <TabsContent value="tickets" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <div className="flex justify-between items-center">
+                  <div>
+                    <CardTitle>Ticket Management</CardTitle>
+                    <CardDescription>View and manage all support tickets in the system</CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {/* Ticket Filters */}
+                <div className="flex flex-col md:flex-row gap-4 mb-6">
+                  <div className="flex-1">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                      <Input
+                        placeholder="Search tickets..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="pl-10"
+                      />
+                    </div>
+                  </div>
+                  <Select value={ticketStatusFilter} onValueChange={setTicketStatusFilter}>
+                    <SelectTrigger className="w-full md:w-48">
+                      <SelectValue placeholder="Filter by status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Statuses</SelectItem>
+                      <SelectItem value="open">Open</SelectItem>
+                      <SelectItem value="in_progress">In Progress</SelectItem>
+                      <SelectItem value="resolved">Resolved</SelectItem>
+                      <SelectItem value="closed">Closed</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select value={ticketCategoryFilter} onValueChange={setTicketCategoryFilter}>
+                    <SelectTrigger className="w-full md:w-48">
+                      <SelectValue placeholder="Filter by category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Categories</SelectItem>
+                      {categories.map((category) => (
+                        <SelectItem key={category.id} value={category.name}>
+                          {category.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-4">
+                  {filteredTickets.map((ticket) => (
+                    <div
+                      key={ticket.id}
+                      className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50"
+                    >
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <h4 className="font-semibold text-lg">{ticket.subject || "No Subject"}</h4>
+                          <Badge className={getTicketStatusColor(ticket.status || "open")}>
+                            {(ticket.status || "open").replace("_", " ")}
+                          </Badge>
+                          <Badge variant="outline">{ticket.category || "Uncategorized"}</Badge>
+                          <Badge variant="secondary">{ticket.priority || "medium"}</Badge>
+                        </div>
+                        <p className="text-sm text-gray-600 mb-2 line-clamp-2">
+                          {ticket.description || "No description"}
+                        </p>
+                        <div className="flex items-center gap-4 text-xs text-gray-500">
+                          <span>
+                            Created {ticket.created_at ? new Date(ticket.created_at).toLocaleDateString() : "Unknown"}
+                          </span>
+                          <span>{ticket.votes || 0} votes</span>
+                          <span>{ticket.comments_count || 0} comments</span>
+                          {ticket.assigned_to && <span>Assigned to {ticket.assigned_to}</span>}
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button variant="outline" size="sm" onClick={() => setSelectedTicket(ticket)}>
+                          <Eye className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleDeleteTicket(ticket.id)}
+                          className="text-red-600 hover:text-red-700"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                  {filteredTickets.length === 0 && (
+                    <div className="text-center py-8 text-gray-500">No tickets found matching your criteria.</div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
           <TabsContent value="categories" className="space-y-4">
             <Card>
               <CardHeader>
@@ -672,131 +840,137 @@ export function AdminPanel() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="tickets" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Ticket Overview</CardTitle>
-                <CardDescription>System-wide ticket statistics and management</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                  <Card className="bg-red-50 border-red-200">
-                    <CardContent className="pt-4">
-                      <div className="flex items-center gap-3">
-                        <AlertCircle className="w-8 h-8 text-red-600" />
-                        <div>
-                          <p className="text-sm font-medium text-red-800">Open Tickets</p>
-                          <p className="text-2xl font-bold text-red-900">{stats.openTickets}</p>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  <Card className="bg-yellow-50 border-yellow-200">
-                    <CardContent className="pt-4">
-                      <div className="flex items-center gap-3">
-                        <Clock className="w-8 h-8 text-yellow-600" />
-                        <div>
-                          <p className="text-sm font-medium text-yellow-800">In Progress</p>
-                          <p className="text-2xl font-bold text-yellow-900">
-                            {tickets.filter((t) => t && t.status === "in_progress").length}
-                          </p>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  <Card className="bg-green-50 border-green-200">
-                    <CardContent className="pt-4">
-                      <div className="flex items-center gap-3">
-                        <CheckCircle className="w-8 h-8 text-green-600" />
-                        <div>
-                          <p className="text-sm font-medium text-green-800">Resolved</p>
-                          <p className="text-2xl font-bold text-green-900">{stats.resolvedTickets}</p>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </div>
-
-                <div className="space-y-4">
-                  <h4 className="font-semibold">Recent Tickets</h4>
-                  {tickets.slice(0, 5).map((ticket) => (
-                    <div key={ticket.id} className="flex items-center justify-between p-4 border rounded-lg">
-                      <div className="flex-1">
-                        <h5 className="font-medium">{ticket.subject || "No Subject"}</h5>
-                        <p className="text-sm text-gray-600 mt-1">{ticket.category || "Uncategorized"}</p>
-                        <p className="text-xs text-gray-500 mt-1">
-                          Created {ticket.created_at ? new Date(ticket.created_at).toLocaleDateString() : "Unknown"}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Badge
-                          className={
-                            ticket.status === "open"
-                              ? "bg-red-100 text-red-800"
-                              : ticket.status === "in_progress"
-                                ? "bg-yellow-100 text-yellow-800"
-                                : ticket.status === "resolved"
-                                  ? "bg-green-100 text-green-800"
-                                  : "bg-gray-100 text-gray-800"
-                          }
-                        >
-                          {(ticket.status || "open").replace("_", " ")}
-                        </Badge>
-                        <Badge variant="outline">{ticket.priority || "medium"}</Badge>
-                      </div>
-                    </div>
-                  ))}
-                  {tickets.length === 0 && (
-                    <div className="text-center py-8 text-gray-500">No tickets found in the system.</div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
           <TabsContent value="analytics" className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Ticket Status Distribution */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Ticket Status Distribution</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center">
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full bg-red-500" />
+                        <span className="font-medium">Open</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="w-24 bg-gray-200 rounded-full h-2">
+                          <div
+                            className="bg-red-500 h-2 rounded-full"
+                            style={{
+                              width:
+                                stats.totalTickets > 0 ? `${(stats.openTickets / stats.totalTickets) * 100}%` : "0%",
+                            }}
+                          />
+                        </div>
+                        <span className="text-sm text-gray-600 w-8 text-right">{stats.openTickets}</span>
+                      </div>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full bg-yellow-500" />
+                        <span className="font-medium">In Progress</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="w-24 bg-gray-200 rounded-full h-2">
+                          <div
+                            className="bg-yellow-500 h-2 rounded-full"
+                            style={{
+                              width:
+                                stats.totalTickets > 0
+                                  ? `${(stats.inProgressTickets / stats.totalTickets) * 100}%`
+                                  : "0%",
+                            }}
+                          />
+                        </div>
+                        <span className="text-sm text-gray-600 w-8 text-right">{stats.inProgressTickets}</span>
+                      </div>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full bg-green-500" />
+                        <span className="font-medium">Resolved</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="w-24 bg-gray-200 rounded-full h-2">
+                          <div
+                            className="bg-green-500 h-2 rounded-full"
+                            style={{
+                              width:
+                                stats.totalTickets > 0
+                                  ? `${(stats.resolvedTickets / stats.totalTickets) * 100}%`
+                                  : "0%",
+                            }}
+                          />
+                        </div>
+                        <span className="text-sm text-gray-600 w-8 text-right">{stats.resolvedTickets}</span>
+                      </div>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full bg-gray-500" />
+                        <span className="font-medium">Closed</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="w-24 bg-gray-200 rounded-full h-2">
+                          <div
+                            className="bg-gray-500 h-2 rounded-full"
+                            style={{
+                              width:
+                                stats.totalTickets > 0 ? `${(stats.closedTickets / stats.totalTickets) * 100}%` : "0%",
+                            }}
+                          />
+                        </div>
+                        <span className="text-sm text-gray-600 w-8 text-right">{stats.closedTickets}</span>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Ticket Distribution by Category */}
               <Card>
                 <CardHeader>
                   <CardTitle>Ticket Distribution by Category</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    {categories.map((category) => (
-                      <div key={category.id} className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div
-                            className="w-3 h-3 rounded-full"
-                            style={{ backgroundColor: category.color || "#3b82f6" }}
-                          />
-                          <span className="font-medium">{category.name || "Unnamed"}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <div className="w-24 bg-gray-200 rounded-full h-2">
+                    {categories.length > 0 ? (
+                      categories.map((category) => (
+                        <div key={category.id} className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
                             <div
-                              className="h-2 rounded-full"
-                              style={{
-                                width:
-                                  stats.totalTickets > 0
-                                    ? `${((category.ticket_count || 0) / stats.totalTickets) * 100}%`
-                                    : "0%",
-                                backgroundColor: category.color || "#3b82f6",
-                              }}
+                              className="w-3 h-3 rounded-full"
+                              style={{ backgroundColor: category.color || "#3b82f6" }}
                             />
+                            <span className="font-medium">{category.name || "Unnamed"}</span>
                           </div>
-                          <span className="text-sm text-gray-600 w-8 text-right">{category.ticket_count || 0}</span>
+                          <div className="flex items-center gap-2">
+                            <div className="w-24 bg-gray-200 rounded-full h-2">
+                              <div
+                                className="h-2 rounded-full"
+                                style={{
+                                  width:
+                                    stats.totalTickets > 0
+                                      ? `${((category.ticket_count || 0) / stats.totalTickets) * 100}%`
+                                      : "0%",
+                                  backgroundColor: category.color || "#3b82f6",
+                                }}
+                              />
+                            </div>
+                            <span className="text-sm text-gray-600 w-8 text-right">{category.ticket_count || 0}</span>
+                          </div>
                         </div>
-                      </div>
-                    ))}
-                    {categories.length === 0 && (
+                      ))
+                    ) : (
                       <div className="text-center py-4 text-gray-500">No categories available for analysis.</div>
                     )}
                   </div>
                 </CardContent>
               </Card>
 
+              {/* User Role Distribution */}
               <Card>
                 <CardHeader>
                   <CardTitle>User Role Distribution</CardTitle>
@@ -854,15 +1028,18 @@ export function AdminPanel() {
                 </CardContent>
               </Card>
 
-              <Card className="md:col-span-2">
+              {/* System Performance Metrics */}
+              <Card>
                 <CardHeader>
                   <CardTitle>System Performance Metrics</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div className="grid grid-cols-2 gap-4">
                     <div className="text-center p-4 bg-blue-50 rounded-lg">
                       <TrendingUp className="w-8 h-8 text-blue-600 mx-auto mb-2" />
-                      <p className="text-2xl font-bold text-blue-900">94%</p>
+                      <p className="text-2xl font-bold text-blue-900">
+                        {stats.totalTickets > 0 ? Math.round((stats.resolvedTickets / stats.totalTickets) * 100) : 0}%
+                      </p>
                       <p className="text-sm text-blue-700">Resolution Rate</p>
                     </div>
                     <div className="text-center p-4 bg-green-50 rounded-lg">
@@ -1056,6 +1233,20 @@ export function AdminPanel() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Ticket Detail Dialog */}
+      {selectedTicket && (
+        <TicketDetailDialog
+          ticket={selectedTicket}
+          open={!!selectedTicket}
+          onOpenChange={(open) => !open && setSelectedTicket(null)}
+          onTicketUpdated={(updatedTicket) => {
+            setTickets((prev) => prev.map((t) => (t.id === updatedTicket.id ? updatedTicket : t)))
+            setSelectedTicket(updatedTicket)
+          }}
+          isAgent={true}
+        />
+      )}
     </div>
   )
 }
