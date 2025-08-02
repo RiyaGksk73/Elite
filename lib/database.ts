@@ -132,7 +132,7 @@ export class DatabaseService {
 
         // Create new user with the provided credentials
         const newUser: User = {
-          id: `user-${Date.now()}`,
+          id: `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           name: email.split("@")[0] || "User",
           email,
           password,
@@ -234,7 +234,7 @@ export class DatabaseService {
       const data = await this.getData()
       const newUser: User = {
         ...userData,
-        id: userData.id || `user-${Date.now()}`,
+        id: userData.id || `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         created_at: userData.created_at || new Date().toISOString(),
       }
 
@@ -286,10 +286,11 @@ export class DatabaseService {
 
   static async createTicket(ticketData: Omit<Ticket, "id" | "created_at" | "updated_at">): Promise<Ticket> {
     try {
+      console.log("🎫 Creating ticket:", ticketData.subject)
       const data = await this.getData()
       const newTicket: Ticket = {
         ...ticketData,
-        id: `ticket-${Date.now()}`,
+        id: `ticket-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }
@@ -306,15 +307,17 @@ export class DatabaseService {
       }
 
       await this.updateData(data)
+      console.log("✅ Ticket created successfully:", newTicket.id)
       return newTicket
     } catch (error) {
-      console.error("Failed to create ticket:", error)
+      console.error("❌ Failed to create ticket:", error)
       throw error
     }
   }
 
   static async updateTicket(id: string, updates: Partial<Ticket>): Promise<Ticket | null> {
     try {
+      console.log("🔄 Updating ticket:", id, updates)
       const data = await this.getData()
       data.tickets = data.tickets || []
 
@@ -327,10 +330,34 @@ export class DatabaseService {
         updated_at: new Date().toISOString(),
       }
       await this.updateData(data)
+      console.log("✅ Ticket updated successfully")
       return data.tickets[ticketIndex]
     } catch (error) {
-      console.error("Failed to update ticket:", error)
+      console.error("❌ Failed to update ticket:", error)
       return null
+    }
+  }
+
+  static async deleteTicket(id: string): Promise<boolean> {
+    try {
+      console.log("🗑️ Deleting ticket:", id)
+      const data = await this.getData()
+      data.tickets = data.tickets || []
+
+      const ticketIndex = data.tickets.findIndex((ticket: Ticket) => ticket.id === id)
+      if (ticketIndex === -1) return false
+
+      // Also delete associated comments
+      data.comments = data.comments || []
+      data.comments = data.comments.filter((comment: Comment) => comment.ticket_id !== id)
+
+      data.tickets.splice(ticketIndex, 1)
+      await this.updateData(data)
+      console.log("✅ Ticket deleted successfully")
+      return true
+    } catch (error) {
+      console.error("❌ Failed to delete ticket:", error)
+      return false
     }
   }
 
@@ -339,7 +366,7 @@ export class DatabaseService {
       const data = await this.getData()
       const newCategory: Category = {
         ...categoryData,
-        id: `cat-${Date.now()}`,
+        id: `cat-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         created_at: new Date().toISOString(),
       }
 
@@ -394,7 +421,7 @@ export class DatabaseService {
       const data = await this.getData()
       const newComment: Comment = {
         ...commentData,
-        id: `comment-${Date.now()}`,
+        id: `comment-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         created_at: new Date().toISOString(),
       }
 
