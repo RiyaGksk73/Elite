@@ -170,8 +170,13 @@ export class DatabaseService {
   }
 
   static async getTicketById(id: string): Promise<Ticket | undefined> {
-    const tickets = await this.getTickets()
-    return tickets.find((ticket) => ticket.id === id)
+    try {
+      const tickets = await this.getTickets()
+      return tickets.find((ticket) => ticket.id === id)
+    } catch (error) {
+      console.error("Failed to get ticket by ID:", error)
+      return undefined
+    }
   }
 
   static async getTicketsByUser(userId: string): Promise<Ticket[]> {
@@ -196,11 +201,28 @@ export class DatabaseService {
 
   static async getCommentsByTicket(ticketId: string): Promise<Comment[]> {
     try {
+      console.log("🔍 Getting comments for ticket:", ticketId)
       const data = await this.getData()
+      console.log("📊 Database data structure:", {
+        hasComments: !!data.comments,
+        commentsType: typeof data.comments,
+        commentsIsArray: Array.isArray(data.comments),
+        commentsLength: data.comments?.length,
+      })
+
       const comments = data.comments || []
-      return Array.isArray(comments) ? comments.filter((comment: Comment) => comment.ticket_id === ticketId) : []
+
+      if (!Array.isArray(comments)) {
+        console.warn("⚠️ Comments is not an array:", typeof comments)
+        return []
+      }
+
+      const filteredComments = comments.filter((comment: Comment) => comment.ticket_id === ticketId)
+      console.log("📝 Filtered comments:", filteredComments.length)
+
+      return filteredComments
     } catch (error) {
-      console.error("Failed to get comments:", error)
+      console.error("❌ Failed to get comments:", error)
       return []
     }
   }
@@ -229,117 +251,171 @@ export class DatabaseService {
   }
 
   static async updateUser(id: string, updates: Partial<User>): Promise<User | null> {
-    const data = await this.getData()
-    const userIndex = data.users.findIndex((user: User) => user.id === id)
-    if (userIndex === -1) return null
+    try {
+      const data = await this.getData()
+      data.users = data.users || []
 
-    data.users[userIndex] = { ...data.users[userIndex], ...updates }
-    await this.updateData(data)
-    return data.users[userIndex]
+      const userIndex = data.users.findIndex((user: User) => user.id === id)
+      if (userIndex === -1) return null
+
+      data.users[userIndex] = { ...data.users[userIndex], ...updates }
+      await this.updateData(data)
+      return data.users[userIndex]
+    } catch (error) {
+      console.error("Failed to update user:", error)
+      return null
+    }
   }
 
   static async deleteUser(id: string): Promise<boolean> {
-    const data = await this.getData()
-    const userIndex = data.users.findIndex((user: User) => user.id === id)
-    if (userIndex === -1) return false
+    try {
+      const data = await this.getData()
+      data.users = data.users || []
 
-    data.users.splice(userIndex, 1)
-    await this.updateData(data)
-    return true
+      const userIndex = data.users.findIndex((user: User) => user.id === id)
+      if (userIndex === -1) return false
+
+      data.users.splice(userIndex, 1)
+      await this.updateData(data)
+      return true
+    } catch (error) {
+      console.error("Failed to delete user:", error)
+      return false
+    }
   }
 
   static async createTicket(ticketData: Omit<Ticket, "id" | "created_at" | "updated_at">): Promise<Ticket> {
-    const data = await this.getData()
-    const newTicket: Ticket = {
-      ...ticketData,
-      id: `ticket-${Date.now()}`,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    }
-
-    data.tickets = data.tickets || []
-    data.tickets.push(newTicket)
-
-    // Update category ticket count
-    if (data.categories) {
-      const category = data.categories.find((cat: Category) => cat.name === ticketData.category)
-      if (category) {
-        category.ticket_count += 1
+    try {
+      const data = await this.getData()
+      const newTicket: Ticket = {
+        ...ticketData,
+        id: `ticket-${Date.now()}`,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
       }
-    }
 
-    await this.updateData(data)
-    return newTicket
+      data.tickets = data.tickets || []
+      data.tickets.push(newTicket)
+
+      // Update category ticket count
+      if (data.categories) {
+        const category = data.categories.find((cat: Category) => cat.name === ticketData.category)
+        if (category) {
+          category.ticket_count += 1
+        }
+      }
+
+      await this.updateData(data)
+      return newTicket
+    } catch (error) {
+      console.error("Failed to create ticket:", error)
+      throw error
+    }
   }
 
   static async updateTicket(id: string, updates: Partial<Ticket>): Promise<Ticket | null> {
-    const data = await this.getData()
-    const ticketIndex = data.tickets.findIndex((ticket: Ticket) => ticket.id === id)
-    if (ticketIndex === -1) return null
+    try {
+      const data = await this.getData()
+      data.tickets = data.tickets || []
 
-    data.tickets[ticketIndex] = {
-      ...data.tickets[ticketIndex],
-      ...updates,
-      updated_at: new Date().toISOString(),
+      const ticketIndex = data.tickets.findIndex((ticket: Ticket) => ticket.id === id)
+      if (ticketIndex === -1) return null
+
+      data.tickets[ticketIndex] = {
+        ...data.tickets[ticketIndex],
+        ...updates,
+        updated_at: new Date().toISOString(),
+      }
+      await this.updateData(data)
+      return data.tickets[ticketIndex]
+    } catch (error) {
+      console.error("Failed to update ticket:", error)
+      return null
     }
-    await this.updateData(data)
-    return data.tickets[ticketIndex]
   }
 
   static async createCategory(categoryData: Omit<Category, "id" | "created_at">): Promise<Category> {
-    const data = await this.getData()
-    const newCategory: Category = {
-      ...categoryData,
-      id: `cat-${Date.now()}`,
-      created_at: new Date().toISOString(),
-    }
+    try {
+      const data = await this.getData()
+      const newCategory: Category = {
+        ...categoryData,
+        id: `cat-${Date.now()}`,
+        created_at: new Date().toISOString(),
+      }
 
-    data.categories = data.categories || []
-    data.categories.push(newCategory)
-    await this.updateData(data)
-    return newCategory
+      data.categories = data.categories || []
+      data.categories.push(newCategory)
+      await this.updateData(data)
+      return newCategory
+    } catch (error) {
+      console.error("Failed to create category:", error)
+      throw error
+    }
   }
 
   static async updateCategory(id: string, updates: Partial<Category>): Promise<Category | null> {
-    const data = await this.getData()
-    const categoryIndex = data.categories.findIndex((cat: Category) => cat.id === id)
-    if (categoryIndex === -1) return null
+    try {
+      const data = await this.getData()
+      data.categories = data.categories || []
 
-    data.categories[categoryIndex] = { ...data.categories[categoryIndex], ...updates }
-    await this.updateData(data)
-    return data.categories[categoryIndex]
+      const categoryIndex = data.categories.findIndex((cat: Category) => cat.id === id)
+      if (categoryIndex === -1) return null
+
+      data.categories[categoryIndex] = { ...data.categories[categoryIndex], ...updates }
+      await this.updateData(data)
+      return data.categories[categoryIndex]
+    } catch (error) {
+      console.error("Failed to update category:", error)
+      return null
+    }
   }
 
   static async deleteCategory(id: string): Promise<boolean> {
-    const data = await this.getData()
-    const categoryIndex = data.categories.findIndex((cat: Category) => cat.id === id)
-    if (categoryIndex === -1) return false
+    try {
+      const data = await this.getData()
+      data.categories = data.categories || []
 
-    data.categories.splice(categoryIndex, 1)
-    await this.updateData(data)
-    return true
+      const categoryIndex = data.categories.findIndex((cat: Category) => cat.id === id)
+      if (categoryIndex === -1) return false
+
+      data.categories.splice(categoryIndex, 1)
+      await this.updateData(data)
+      return true
+    } catch (error) {
+      console.error("Failed to delete category:", error)
+      return false
+    }
   }
 
   static async addComment(commentData: Omit<Comment, "id" | "created_at">): Promise<Comment> {
-    const data = await this.getData()
-    const newComment: Comment = {
-      ...commentData,
-      id: `comment-${Date.now()}`,
-      created_at: new Date().toISOString(),
+    try {
+      console.log("💬 Adding comment:", commentData)
+
+      const data = await this.getData()
+      const newComment: Comment = {
+        ...commentData,
+        id: `comment-${Date.now()}`,
+        created_at: new Date().toISOString(),
+      }
+
+      data.comments = data.comments || []
+      data.comments.push(newComment)
+
+      // Update ticket comment count
+      data.tickets = data.tickets || []
+      const ticket = data.tickets.find((t: Ticket) => t.id === commentData.ticket_id)
+      if (ticket) {
+        ticket.comments_count = (ticket.comments_count || 0) + 1
+        ticket.updated_at = new Date().toISOString()
+      }
+
+      await this.updateData(data)
+      console.log("✅ Comment added successfully:", newComment.id)
+      return newComment
+    } catch (error) {
+      console.error("❌ Failed to add comment:", error)
+      throw error
     }
-
-    data.comments = data.comments || []
-    data.comments.push(newComment)
-
-    // Update ticket comment count
-    const ticket = data.tickets.find((t: Ticket) => t.id === commentData.ticket_id)
-    if (ticket) {
-      ticket.comments_count += 1
-      ticket.updated_at = new Date().toISOString()
-    }
-
-    await this.updateData(data)
-    return newComment
   }
 
   // Initialize the service

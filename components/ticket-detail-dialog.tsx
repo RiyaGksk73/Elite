@@ -72,12 +72,43 @@ export function TicketDetailDialog({
   const { user } = useAuth()
   const { toast } = useToast()
   const [comments, setComments] = useState<Comment[]>([])
+  const [isLoadingComments, setIsLoadingComments] = useState(false)
+  const [commentsError, setCommentsError] = useState<string | null>(null)
 
   useEffect(() => {
-    // Load comments from database
-    const ticketComments = DatabaseService.getCommentsByTicket(ticket.id)
-    setComments(ticketComments)
-  }, [ticket.id])
+    const loadComments = async () => {
+      if (!ticket?.id) return
+
+      setIsLoadingComments(true)
+      setCommentsError(null)
+
+      try {
+        console.log("🔍 Loading comments for ticket:", ticket.id)
+        const ticketComments = await DatabaseService.getCommentsByTicket(ticket.id)
+
+        console.log("📝 Raw comments data:", ticketComments)
+
+        // Ensure we have an array
+        if (Array.isArray(ticketComments)) {
+          setComments(ticketComments)
+          console.log("✅ Comments loaded successfully:", ticketComments.length)
+        } else {
+          console.warn("⚠️ Comments data is not an array:", typeof ticketComments)
+          setComments([])
+        }
+      } catch (error) {
+        console.error("❌ Failed to load comments:", error)
+        setCommentsError("Failed to load comments")
+        setComments([])
+      } finally {
+        setIsLoadingComments(false)
+      }
+    }
+
+    if (open && ticket?.id) {
+      loadComments()
+    }
+  }, [ticket?.id, open])
 
   const [newComment, setNewComment] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -110,41 +141,64 @@ export function TicketDetailDialog({
     }
   }
 
-  const handleStatusChange = (newStatus: string) => {
-    const updatedTicket = {
-      ...ticket,
-      status: newStatus as Ticket["status"],
-      updated_at: new Date().toISOString(),
-    }
-    onTicketUpdated(updatedTicket)
+  const handleStatusChange = async (newStatus: string) => {
+    try {
+      const updatedTicket = {
+        ...ticket,
+        status: newStatus as Ticket["status"],
+        updated_at: new Date().toISOString(),
+      }
 
-    toast({
-      title: "Status updated",
-      description: `Ticket status changed to ${newStatus.replace("_", " ")}`,
-    })
+      // Update in database
+      await DatabaseService.updateTicket(ticket.id, { status: newStatus as Ticket["status"] })
+
+      onTicketUpdated(updatedTicket)
+
+      toast({
+        title: "Status updated",
+        description: `Ticket status changed to ${newStatus.replace("_", " ")}`,
+      })
+    } catch (error) {
+      console.error("Failed to update ticket status:", error)
+      toast({
+        title: "Error updating status",
+        description: "Please try again later.",
+        variant: "destructive",
+      })
+    }
   }
 
   const handleAddComment = async () => {
-    if (!newComment.trim()) return
+    if (!newComment.trim() || !user) return
 
     setIsSubmitting(true)
 
     try {
-      const comment = DatabaseService.addComment({
+      console.log("💬 Adding comment to ticket:", ticket.id)
+
+      const comment = await DatabaseService.addComment({
         ticket_id: ticket.id,
         content: newComment,
-        author_id: user?.id || "",
-        author_name: user?.name || "Anonymous",
-        author_role: user?.role || "end_user",
+        author_id: user.id,
+        author_name: user.name || user.email || "Anonymous",
+        author_role: user.role || "end_user",
       })
 
-      setComments((prev) => [...prev, comment])
+      console.log("✅ Comment added:", comment)
+
+      // Update local comments state
+      setComments((prev) => {
+        const updatedComments = Array.isArray(prev) ? [...prev, comment] : [comment]
+        console.log("📝 Updated comments list:", updatedComments.length)
+        return updatedComments
+      })
+
       setNewComment("")
 
       // Update ticket comment count
       const updatedTicket = {
         ...ticket,
-        comments_count: ticket.comments_count + 1,
+        comments_count: (ticket.comments_count || 0) + 1,
         updated_at: new Date().toISOString(),
       }
       onTicketUpdated(updatedTicket)
@@ -154,6 +208,7 @@ export function TicketDetailDialog({
         description: "Your comment has been posted successfully.",
       })
     } catch (error) {
+      console.error("❌ Failed to add comment:", error)
       toast({
         title: "Error adding comment",
         description: "Please try again later.",
@@ -164,13 +219,30 @@ export function TicketDetailDialog({
     }
   }
 
-  const handleVote = (voteType: "up" | "down") => {
-    const updatedTicket = {
-      ...ticket,
-      votes: voteType === "up" ? ticket.votes + 1 : ticket.votes - 1,
+  const handleVote = async (voteType: "up" | "down") => {
+    try {
+      const newVotes = voteType === "up" ? (ticket.votes || 0) + 1 : (ticket.votes || 0) - 1
+      const updatedTicket = {
+        ...ticket,
+        votes: Math.max(0, newVotes), // Prevent negative votes
+      }
+
+      // Update in database
+      await DatabaseService.updateTicket(ticket.id, { votes: updatedTicket.votes })
+
+      onTicketUpdated(updatedTicket)
+    } catch (error) {
+      console.error("Failed to update vote:", error)
+      toast({
+        title: "Error updating vote",
+        description: "Please try again later.",
+        variant: "destructive",
+      })
     }
-    onTicketUpdated(updatedTicket)
   }
+
+  // Ensure comments is always an array
+  const safeComments = Array.isArray(comments) ? comments : []
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -178,9 +250,10 @@ export function TicketDetailDialog({
         <DialogHeader>
           <div className="flex items-start justify-between">
             <div className="flex-1">
-              <DialogTitle className="text-xl">{ticket.subject}</DialogTitle>
+              <DialogTitle className="text-xl">{ticket?.subject || "Untitled Ticket"}</DialogTitle>
               <DialogDescription className="mt-2">
-                Ticket #{ticket.id} • Created {new Date(ticket.created_at).toLocaleDateString()}
+                Ticket #{ticket?.id || "Unknown"} • Created{" "}
+                {ticket?.created_at ? new Date(ticket.created_at).toLocaleDateString() : "Unknown date"}
               </DialogDescription>
             </div>
             <div className="flex items-center gap-2">
@@ -189,16 +262,16 @@ export function TicketDetailDialog({
                   variant="ghost"
                   size="sm"
                   onClick={() => handleVote("up")}
-                  disabled={ticket.created_by === user?.id}
+                  disabled={ticket?.created_by === user?.id}
                 >
                   <ThumbsUp className="w-4 h-4" />
                 </Button>
-                <span className="font-medium">{ticket.votes}</span>
+                <span className="font-medium">{ticket?.votes || 0}</span>
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={() => handleVote("down")}
-                  disabled={ticket.created_by === user?.id}
+                  disabled={ticket?.created_by === user?.id}
                 >
                   <ThumbsDown className="w-4 h-4" />
                 </Button>
@@ -210,9 +283,11 @@ export function TicketDetailDialog({
         <div className="space-y-6">
           {/* Ticket Info */}
           <div className="flex flex-wrap gap-2">
-            <Badge className={getStatusColor(ticket.status)}>{ticket.status.replace("_", " ")}</Badge>
-            <Badge variant="outline">{ticket.category}</Badge>
-            {ticket.assigned_to && (
+            <Badge className={getStatusColor(ticket?.status || "open")}>
+              {ticket?.status?.replace("_", " ") || "Open"}
+            </Badge>
+            <Badge variant="outline">{ticket?.category || "General"}</Badge>
+            {ticket?.assigned_to && (
               <Badge variant="outline">Assigned to {ticket.assigned_to === user?.id ? "me" : ticket.assigned_to}</Badge>
             )}
           </div>
@@ -222,7 +297,7 @@ export function TicketDetailDialog({
             <Card>
               <CardContent className="pt-4">
                 <div className="flex items-center gap-4">
-                  <Select value={ticket.status} onValueChange={handleStatusChange}>
+                  <Select value={ticket?.status || "open"} onValueChange={handleStatusChange}>
                     <SelectTrigger className="w-48">
                       <SelectValue />
                     </SelectTrigger>
@@ -254,9 +329,11 @@ export function TicketDetailDialog({
                     <Badge className={getRoleColor("end_user")} variant="outline">
                       End User
                     </Badge>
-                    <span className="text-sm text-gray-500">{new Date(ticket.created_at).toLocaleString()}</span>
+                    <span className="text-sm text-gray-500">
+                      {ticket?.created_at ? new Date(ticket.created_at).toLocaleString() : "Unknown date"}
+                    </span>
                   </div>
-                  <p className="text-gray-700">{ticket.description}</p>
+                  <p className="text-gray-700">{ticket?.description || "No description provided."}</p>
                 </div>
               </div>
             </CardContent>
@@ -266,30 +343,67 @@ export function TicketDetailDialog({
           <div className="space-y-4">
             <div className="flex items-center gap-2">
               <MessageSquare className="w-5 h-5" />
-              <h3 className="font-semibold">Comments ({comments.length})</h3>
+              <h3 className="font-semibold">Comments ({safeComments.length})</h3>
             </div>
 
-            {comments.map((comment) => (
-              <Card key={comment.id}>
+            {/* Loading State */}
+            {isLoadingComments && (
+              <Card>
                 <CardContent className="pt-4">
-                  <div className="flex items-start gap-3">
-                    <Avatar className="w-8 h-8">
-                      <AvatarFallback>{comment.author.charAt(0).toUpperCase()}</AvatarFallback>
-                    </Avatar>
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="font-medium">{comment.author}</span>
-                        <Badge className={getRoleColor(comment.author_role)} variant="outline">
-                          {comment.author_role.replace("_", " ")}
-                        </Badge>
-                        <span className="text-sm text-gray-500">{new Date(comment.created_at).toLocaleString()}</span>
-                      </div>
-                      <p className="text-gray-700">{comment.content}</p>
-                    </div>
+                  <div className="flex items-center justify-center py-4">
+                    <div className="text-sm text-gray-500">Loading comments...</div>
                   </div>
                 </CardContent>
               </Card>
-            ))}
+            )}
+
+            {/* Error State */}
+            {commentsError && (
+              <Card>
+                <CardContent className="pt-4">
+                  <div className="flex items-center justify-center py-4">
+                    <div className="text-sm text-red-500">{commentsError}</div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Comments List */}
+            {!isLoadingComments && !commentsError && safeComments.length === 0 && (
+              <Card>
+                <CardContent className="pt-4">
+                  <div className="flex items-center justify-center py-4">
+                    <div className="text-sm text-gray-500">No comments yet. Be the first to comment!</div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {!isLoadingComments &&
+              !commentsError &&
+              safeComments.map((comment) => (
+                <Card key={comment.id}>
+                  <CardContent className="pt-4">
+                    <div className="flex items-start gap-3">
+                      <Avatar className="w-8 h-8">
+                        <AvatarFallback>{(comment.author || "U").charAt(0).toUpperCase()}</AvatarFallback>
+                      </Avatar>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="font-medium">{comment.author || "Anonymous"}</span>
+                          <Badge className={getRoleColor(comment.author_role || "end_user")} variant="outline">
+                            {(comment.author_role || "end_user").replace("_", " ")}
+                          </Badge>
+                          <span className="text-sm text-gray-500">
+                            {comment.created_at ? new Date(comment.created_at).toLocaleString() : "Unknown date"}
+                          </span>
+                        </div>
+                        <p className="text-gray-700">{comment.content || "No content"}</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
           </div>
 
           {/* Add Comment */}
@@ -307,7 +421,7 @@ export function TicketDetailDialog({
                   rows={3}
                 />
                 <div className="flex justify-end">
-                  <Button onClick={handleAddComment} disabled={!newComment.trim() || isSubmitting}>
+                  <Button onClick={handleAddComment} disabled={!newComment.trim() || isSubmitting || !user}>
                     <Send className="w-4 h-4 mr-2" />
                     {isSubmitting ? "Posting..." : "Post Comment"}
                   </Button>

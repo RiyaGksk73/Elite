@@ -108,19 +108,21 @@ export function AdminPanel() {
     }
   }
 
-  // Safe filtering with null checks
+  // Safe filtering with comprehensive null checks
   const filteredUsers = Array.isArray(users)
     ? users.filter((user) => {
-        if (!user) return false
+        // Ensure user exists and has required properties
+        if (!user || typeof user !== "object") return false
 
         const userName = user.name || ""
         const userEmail = user.email || ""
         const userRole = user.role || "end_user"
         const userStatus = user.status || "active"
 
+        // Safe string operations with fallbacks
+        const searchTermLower = (searchTerm || "").toLowerCase()
         const matchesSearch =
-          userName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          userEmail.toLowerCase().includes(searchTerm.toLowerCase())
+          userName.toLowerCase().includes(searchTermLower) || userEmail.toLowerCase().includes(searchTermLower)
         const matchesRole = roleFilter === "all" || userRole === roleFilter
         const matchesStatus = statusFilter === "all" || userStatus === statusFilter
 
@@ -164,13 +166,13 @@ export function AdminPanel() {
 
   const stats = {
     totalUsers: Array.isArray(users) ? users.length : 0,
-    activeUsers: Array.isArray(users) ? users.filter((u) => u.status === "active").length : 0,
-    supportAgents: Array.isArray(users) ? users.filter((u) => u.role === "support_agent").length : 0,
-    admins: Array.isArray(users) ? users.filter((u) => u.role === "admin").length : 0,
+    activeUsers: Array.isArray(users) ? users.filter((u) => u && u.status === "active").length : 0,
+    supportAgents: Array.isArray(users) ? users.filter((u) => u && u.role === "support_agent").length : 0,
+    admins: Array.isArray(users) ? users.filter((u) => u && u.role === "admin").length : 0,
     totalCategories: Array.isArray(categories) ? categories.length : 0,
     totalTickets: Array.isArray(tickets) ? tickets.length : 0,
-    openTickets: Array.isArray(tickets) ? tickets.filter((t) => t.status === "open").length : 0,
-    resolvedTickets: Array.isArray(tickets) ? tickets.filter((t) => t.status === "resolved").length : 0,
+    openTickets: Array.isArray(tickets) ? tickets.filter((t) => t && t.status === "open").length : 0,
+    resolvedTickets: Array.isArray(tickets) ? tickets.filter((t) => t && t.status === "resolved").length : 0,
     avgResponseTime: "2.4 hours",
   }
 
@@ -198,13 +200,15 @@ export function AdminPanel() {
     }
   }
 
-  const handleCreateUser = () => {
+  const handleCreateUser = async () => {
     try {
-      const newUser = DatabaseService.createUser({
+      const newUser = await DatabaseService.createUser({
+        id: `user-${Date.now()}`,
         name: userForm.name,
         email: userForm.email,
         password: userForm.password,
         role: userForm.role,
+        created_at: new Date().toISOString(),
         status: "active",
         profile: {
           phone: userForm.phone,
@@ -230,11 +234,11 @@ export function AdminPanel() {
     }
   }
 
-  const handleUpdateUser = () => {
+  const handleUpdateUser = async () => {
     if (!selectedUser) return
 
     try {
-      const updatedUser = DatabaseService.updateUser(selectedUser.id, {
+      const updatedUser = await DatabaseService.updateUser(selectedUser.id, {
         name: userForm.name,
         email: userForm.email,
         role: userForm.role,
@@ -270,12 +274,12 @@ export function AdminPanel() {
     setDeleteDialogOpen(true)
   }
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (!deleteTarget) return
 
     try {
       if (deleteTarget.type === "user") {
-        const success = DatabaseService.deleteUser(deleteTarget.id)
+        const success = await DatabaseService.deleteUser(deleteTarget.id)
         if (success) {
           setUsers((prev) => prev.filter((u) => u.id !== deleteTarget.id))
           toast({
@@ -284,7 +288,7 @@ export function AdminPanel() {
           })
         }
       } else if (deleteTarget.type === "category") {
-        const success = DatabaseService.deleteCategory(deleteTarget.id)
+        const success = await DatabaseService.deleteCategory(deleteTarget.id)
         if (success) {
           setCategories((prev) => prev.filter((c) => c.id !== deleteTarget.id))
           toast({
@@ -305,9 +309,9 @@ export function AdminPanel() {
     setDeleteTarget(null)
   }
 
-  const handleCreateCategory = () => {
+  const handleCreateCategory = async () => {
     try {
-      const newCategory = DatabaseService.createCategory({
+      const newCategory = await DatabaseService.createCategory({
         name: categoryForm.name,
         description: categoryForm.description,
         ticket_count: 0,
@@ -331,11 +335,11 @@ export function AdminPanel() {
     }
   }
 
-  const handleUpdateCategory = () => {
+  const handleUpdateCategory = async () => {
     if (!selectedCategory) return
 
     try {
-      const updatedCategory = DatabaseService.updateCategory(selectedCategory.id, {
+      const updatedCategory = await DatabaseService.updateCategory(selectedCategory.id, {
         name: categoryForm.name,
         description: categoryForm.description,
         color: categoryForm.color,
@@ -383,10 +387,10 @@ export function AdminPanel() {
   const openEditUser = (user: User) => {
     setSelectedUser(user)
     setUserForm({
-      name: user.name,
-      email: user.email,
+      name: user.name || "",
+      email: user.email || "",
       password: "",
-      role: user.role,
+      role: user.role || "end_user",
       phone: user.profile?.phone || "",
       department: user.profile?.department || "",
     })
@@ -396,11 +400,19 @@ export function AdminPanel() {
   const openEditCategory = (category: Category) => {
     setSelectedCategory(category)
     setCategoryForm({
-      name: category.name,
-      description: category.description,
+      name: category.name || "",
+      description: category.description || "",
       color: category.color || "#3b82f6",
     })
     setCategoryDialogOpen(true)
+  }
+
+  // Safe function to get user initials
+  const getUserInitials = (name: string | undefined): string => {
+    if (!name || typeof name !== "string") return "U"
+    const trimmedName = name.trim()
+    if (trimmedName.length === 0) return "U"
+    return trimmedName.charAt(0).toUpperCase()
   }
 
   return (
@@ -543,25 +555,27 @@ export function AdminPanel() {
                     >
                       <div className="flex items-center space-x-4">
                         <Avatar className="w-12 h-12">
-                          <AvatarImage src={user.profile?.avatar || "/placeholder.svg"} alt={user.name} />
-                          <AvatarFallback>{user.name.charAt(0).toUpperCase()}</AvatarFallback>
+                          <AvatarImage src={user.profile?.avatar || "/placeholder.svg"} alt={user.name || "User"} />
+                          <AvatarFallback>{getUserInitials(user.name)}</AvatarFallback>
                         </Avatar>
                         <div>
-                          <h4 className="font-semibold text-lg">{user.name}</h4>
-                          <p className="text-sm text-gray-600">{user.email}</p>
+                          <h4 className="font-semibold text-lg">{user.name || "Unknown User"}</h4>
+                          <p className="text-sm text-gray-600">{user.email || "No email"}</p>
                           <div className="flex items-center gap-2 mt-1">
                             <p className="text-xs text-gray-500">
                               {user.profile?.department && `${user.profile.department} • `}
-                              Joined {new Date(user.created_at).toLocaleDateString()}
+                              Joined {user.created_at ? new Date(user.created_at).toLocaleDateString() : "Unknown"}
                             </p>
                           </div>
                         </div>
                       </div>
                       <div className="flex items-center space-x-3">
                         <div className="text-right">
-                          <Badge className={getRoleColor(user.role)}>{user.role.replace("_", " ")}</Badge>
+                          <Badge className={getRoleColor(user.role || "end_user")}>
+                            {(user.role || "end_user").replace("_", " ")}
+                          </Badge>
                           <div className="mt-1">
-                            <Badge className={getStatusColor(user.status)}>{user.status}</Badge>
+                            <Badge className={getStatusColor(user.status || "active")}>{user.status || "active"}</Badge>
                           </div>
                         </div>
                         <div className="flex gap-2">
@@ -580,6 +594,9 @@ export function AdminPanel() {
                       </div>
                     </div>
                   ))}
+                  {filteredUsers.length === 0 && (
+                    <div className="text-center py-8 text-gray-500">No users found matching your criteria.</div>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -611,8 +628,11 @@ export function AdminPanel() {
                       <CardContent className="pt-6">
                         <div className="flex justify-between items-start mb-4">
                           <div className="flex items-center gap-3">
-                            <div className="w-4 h-4 rounded-full" style={{ backgroundColor: category.color }} />
-                            <h4 className="font-semibold text-lg">{category.name}</h4>
+                            <div
+                              className="w-4 h-4 rounded-full"
+                              style={{ backgroundColor: category.color || "#3b82f6" }}
+                            />
+                            <h4 className="font-semibold text-lg">{category.name || "Unnamed Category"}</h4>
                           </div>
                           <div className="flex gap-2">
                             <Button variant="ghost" size="sm" onClick={() => openEditCategory(category)}>
@@ -631,14 +651,22 @@ export function AdminPanel() {
                             </Button>
                           </div>
                         </div>
-                        <p className="text-gray-600 mb-4">{category.description}</p>
+                        <p className="text-gray-600 mb-4">{category.description || "No description"}</p>
                         <div className="flex items-center justify-between text-sm text-gray-500">
-                          <span>{category.ticket_count} tickets</span>
-                          <span>Created {new Date(category.created_at).toLocaleDateString()}</span>
+                          <span>{category.ticket_count || 0} tickets</span>
+                          <span>
+                            Created{" "}
+                            {category.created_at ? new Date(category.created_at).toLocaleDateString() : "Unknown"}
+                          </span>
                         </div>
                       </CardContent>
                     </Card>
                   ))}
+                  {categories.length === 0 && (
+                    <div className="col-span-full text-center py-8 text-gray-500">
+                      No categories found. Create your first category to get started.
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -671,7 +699,7 @@ export function AdminPanel() {
                         <div>
                           <p className="text-sm font-medium text-yellow-800">In Progress</p>
                           <p className="text-2xl font-bold text-yellow-900">
-                            {tickets.filter((t) => t.status === "in_progress").length}
+                            {tickets.filter((t) => t && t.status === "in_progress").length}
                           </p>
                         </div>
                       </div>
@@ -696,10 +724,10 @@ export function AdminPanel() {
                   {tickets.slice(0, 5).map((ticket) => (
                     <div key={ticket.id} className="flex items-center justify-between p-4 border rounded-lg">
                       <div className="flex-1">
-                        <h5 className="font-medium">{ticket.subject}</h5>
-                        <p className="text-sm text-gray-600 mt-1">{ticket.category}</p>
+                        <h5 className="font-medium">{ticket.subject || "No Subject"}</h5>
+                        <p className="text-sm text-gray-600 mt-1">{ticket.category || "Uncategorized"}</p>
                         <p className="text-xs text-gray-500 mt-1">
-                          Created {new Date(ticket.created_at).toLocaleDateString()}
+                          Created {ticket.created_at ? new Date(ticket.created_at).toLocaleDateString() : "Unknown"}
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
@@ -714,12 +742,15 @@ export function AdminPanel() {
                                   : "bg-gray-100 text-gray-800"
                           }
                         >
-                          {ticket.status.replace("_", " ")}
+                          {(ticket.status || "open").replace("_", " ")}
                         </Badge>
-                        <Badge variant="outline">{ticket.priority}</Badge>
+                        <Badge variant="outline">{ticket.priority || "medium"}</Badge>
                       </div>
                     </div>
                   ))}
+                  {tickets.length === 0 && (
+                    <div className="text-center py-8 text-gray-500">No tickets found in the system.</div>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -736,23 +767,32 @@ export function AdminPanel() {
                     {categories.map((category) => (
                       <div key={category.id} className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
-                          <div className="w-3 h-3 rounded-full" style={{ backgroundColor: category.color }} />
-                          <span className="font-medium">{category.name}</span>
+                          <div
+                            className="w-3 h-3 rounded-full"
+                            style={{ backgroundColor: category.color || "#3b82f6" }}
+                          />
+                          <span className="font-medium">{category.name || "Unnamed"}</span>
                         </div>
                         <div className="flex items-center gap-2">
                           <div className="w-24 bg-gray-200 rounded-full h-2">
                             <div
                               className="h-2 rounded-full"
                               style={{
-                                width: `${(category.ticket_count / stats.totalTickets) * 100}%`,
-                                backgroundColor: category.color,
+                                width:
+                                  stats.totalTickets > 0
+                                    ? `${((category.ticket_count || 0) / stats.totalTickets) * 100}%`
+                                    : "0%",
+                                backgroundColor: category.color || "#3b82f6",
                               }}
                             />
                           </div>
-                          <span className="text-sm text-gray-600 w-8 text-right">{category.ticket_count}</span>
+                          <span className="text-sm text-gray-600 w-8 text-right">{category.ticket_count || 0}</span>
                         </div>
                       </div>
                     ))}
+                    {categories.length === 0 && (
+                      <div className="text-center py-4 text-gray-500">No categories available for analysis.</div>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -770,12 +810,15 @@ export function AdminPanel() {
                           <div
                             className="bg-green-500 h-2 rounded-full"
                             style={{
-                              width: `${(users.filter((u) => u.role === "end_user").length / stats.totalUsers) * 100}%`,
+                              width:
+                                stats.totalUsers > 0
+                                  ? `${(users.filter((u) => u && u.role === "end_user").length / stats.totalUsers) * 100}%`
+                                  : "0%",
                             }}
                           />
                         </div>
                         <span className="text-sm text-gray-600 w-8 text-right">
-                          {users.filter((u) => u.role === "end_user").length}
+                          {users.filter((u) => u && u.role === "end_user").length}
                         </span>
                       </div>
                     </div>
@@ -785,7 +828,9 @@ export function AdminPanel() {
                         <div className="w-24 bg-gray-200 rounded-full h-2">
                           <div
                             className="bg-blue-500 h-2 rounded-full"
-                            style={{ width: `${(stats.supportAgents / stats.totalUsers) * 100}%` }}
+                            style={{
+                              width: stats.totalUsers > 0 ? `${(stats.supportAgents / stats.totalUsers) * 100}%` : "0%",
+                            }}
                           />
                         </div>
                         <span className="text-sm text-gray-600 w-8 text-right">{stats.supportAgents}</span>
@@ -797,7 +842,9 @@ export function AdminPanel() {
                         <div className="w-24 bg-gray-200 rounded-full h-2">
                           <div
                             className="bg-purple-500 h-2 rounded-full"
-                            style={{ width: `${(stats.admins / stats.totalUsers) * 100}%` }}
+                            style={{
+                              width: stats.totalUsers > 0 ? `${(stats.admins / stats.totalUsers) * 100}%` : "0%",
+                            }}
                           />
                         </div>
                         <span className="text-sm text-gray-600 w-8 text-right">{stats.admins}</span>
