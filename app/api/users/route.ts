@@ -16,16 +16,22 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { name, email, role } = body
 
-    if (!name || !email || !role) {
+    if (!name || !email) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
+    }
+
+    // Check if user already exists
+    const existingUser = await DatabaseService.getUserByEmail(email)
+    if (existingUser) {
+      return NextResponse.json({ error: "User already exists" }, { status: 409 })
     }
 
     const user = await DatabaseService.createUser({
       id: `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       name,
       email,
-      password: "default123", // In real app, this would be handled differently
-      role,
+      password: "default", // In a real app, this would be properly handled
+      role: role || "end_user",
       created_at: new Date().toISOString(),
       status: "active",
       profile: {

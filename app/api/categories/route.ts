@@ -14,17 +14,16 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { name, description, color } = body
+    const { name, description } = body
 
-    if (!name || !description) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
+    if (!name) {
+      return NextResponse.json({ error: "Category name is required" }, { status: 400 })
     }
 
     const category = await DatabaseService.createCategory({
       name,
-      description,
+      description: description || "",
       ticket_count: 0,
-      color: color || "#3b82f6",
     })
 
     return NextResponse.json({ success: true, category })

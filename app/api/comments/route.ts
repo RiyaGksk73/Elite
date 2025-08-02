@@ -11,6 +11,7 @@ export async function GET(request: NextRequest) {
     }
 
     const comments = await DatabaseService.getCommentsByTicket(ticketId)
+
     return NextResponse.json({ success: true, comments })
   } catch (error) {
     console.error("❌ Get comments error:", error)
