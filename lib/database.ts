@@ -2,456 +2,360 @@ import { JSONBlobService } from "./jsonblob-service"
 
 export interface User {
   id: string
-  name: string
   email: string
-  password: string
-  role: "end_user" | "support_agent" | "admin"
-  created_at: string
-  status: "active" | "inactive"
-  profile?: {
-    phone?: string
-    department?: string
-    avatar?: string
-  }
+  name: string
+  role: "admin" | "support_agent" | "end_user"
+  createdAt: string
+  avatar?: string
 }
 
 export interface Ticket {
   id: string
-  subject: string
+  title: string
   description: string
   status: "open" | "in_progress" | "resolved" | "closed"
+  priority: "low" | "medium" | "high" | "urgent"
   category: string
-  priority: "low" | "medium" | "high"
-  created_by: string
-  assigned_to?: string
-  created_at: string
-  updated_at: string
+  userId: string
+  assignedTo?: string
+  createdAt: string
+  updatedAt: string
+  tags?: string[]
   votes: number
-  comments_count: number
-  attachments?: string[]
 }
 
 export interface Comment {
   id: string
-  ticket_id: string
+  ticketId: string
+  userId: string
   content: string
-  author_id: string
-  author_name: string
-  author_role: string
-  created_at: string
+  createdAt: string
+  isInternal: boolean
 }
 
 export interface Category {
   id: string
   name: string
   description: string
-  created_at: string
-  ticket_count: number
-  color?: string
+  color: string
+  createdAt: string
+}
+
+export interface DatabaseData {
+  users: User[]
+  tickets: Ticket[]
+  comments: Comment[]
+  categories: Category[]
 }
 
 export class DatabaseService {
-  private static async getData() {
-    return await JSONBlobService.getData()
+  private static instance: DatabaseService
+  private jsonBlobService: JSONBlobService
+
+  constructor() {
+    this.jsonBlobService = new JSONBlobService()
   }
 
-  private static async updateData(data: any) {
-    await JSONBlobService.updateData(data)
-  }
-
-  static async getUsers(): Promise<User[]> {
-    try {
-      const data = await this.getData()
-      return Array.isArray(data.users) ? data.users : []
-    } catch (error) {
-      console.error("Failed to get users:", error)
-      return []
+  static getInstance(): DatabaseService {
+    if (!DatabaseService.instance) {
+      DatabaseService.instance = new DatabaseService()
     }
+    return DatabaseService.instance
   }
 
-  static async getUserById(id: string): Promise<User | undefined> {
+  private async getData(): Promise<DatabaseData> {
     try {
-      console.log("🔍 Looking up user by ID:", id)
-      const users = await this.getUsers()
-      console.log(
-        "👥 Available users:",
-        users.map((u) => ({ id: u.id, email: u.email, role: u.role })),
-      )
-
-      const user = users.find((user) => user.id === id)
-      console.log("👤 Found user:", user ? { id: user.id, email: user.email, role: user.role } : "Not found")
-
-      return user
-    } catch (error) {
-      console.error("Failed to get user by ID:", error)
-      return undefined
-    }
-  }
-
-  static async getUserByEmail(email: string): Promise<User | undefined> {
-    try {
-      const users = await this.getUsers()
-      return users.find((user) => user.email === email)
-    } catch (error) {
-      console.error("Failed to get user by email:", error)
-      return undefined
-    }
-  }
-
-  static async authenticateUser(email: string, password: string): Promise<User | null> {
-    try {
-      console.log("🔐 Authenticating user:", email)
-
-      // Validate inputs
-      if (!email || !password) {
-        console.log("❌ Missing email or password")
-        return null
+      const data = await this.jsonBlobService.getData()
+      return {
+        users: Array.isArray(data?.users) ? data.users : [],
+        tickets: Array.isArray(data?.tickets) ? data.tickets : [],
+        comments: Array.isArray(data?.comments) ? data.comments : [],
+        categories: Array.isArray(data?.categories) ? data.categories : this.getDefaultCategories(),
       }
-
-      // Allow any email/password combination - create user if doesn't exist
-      const users = await this.getUsers()
-      console.log("👥 Total users in database:", users.length)
-
-      let user = users.find((u) => u.email === email)
-      console.log("🔍 Existing user found:", !!user)
-
-      if (!user) {
-        console.log("👤 Creating new user for:", email)
-
-        // Determine role based on email - with null safety
-        let role: User["role"] = "end_user"
-        const emailLower = email.toLowerCase()
-
-        if (emailLower.includes("admin")) {
-          role = "admin"
-        } else if (emailLower.includes("agent")) {
-          role = "support_agent"
-        }
-
-        console.log("🎭 Assigned role:", role)
-
-        // Create new user with the provided credentials
-        const newUser: User = {
-          id: `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          name: email.split("@")[0] || "User",
-          email,
-          password,
-          role,
-          created_at: new Date().toISOString(),
-          status: "active",
-          profile: {
-            phone: "",
-            department: "",
-            avatar: `/placeholder.svg?height=40&width=40&query=${email.split("@")[0]}`,
-          },
-        }
-
-        user = await this.createUser(newUser)
-        console.log("✅ New user created:", { id: user.id, email: user.email, role: user.role })
-      } else {
-        console.log("✅ Existing user authenticated:", { id: user.id, email: user.email, role: user.role })
+    } catch (error) {
+      console.error("Error getting data:", error)
+      return {
+        users: [],
+        tickets: [],
+        comments: [],
+        categories: this.getDefaultCategories(),
       }
-
-      return user
-    } catch (error) {
-      console.error("❌ Authentication failed:", error)
-      return null
     }
   }
 
-  static async getTickets(): Promise<Ticket[]> {
+  private async saveData(data: DatabaseData): Promise<void> {
     try {
-      const data = await this.getData()
-      return Array.isArray(data.tickets) ? data.tickets : []
+      await this.jsonBlobService.saveData(data)
     } catch (error) {
-      console.error("Failed to get tickets:", error)
-      return []
-    }
-  }
-
-  static async getTicketById(id: string): Promise<Ticket | undefined> {
-    try {
-      const tickets = await this.getTickets()
-      return tickets.find((ticket) => ticket.id === id)
-    } catch (error) {
-      console.error("Failed to get ticket by ID:", error)
-      return undefined
-    }
-  }
-
-  static async getTicketsByUser(userId: string): Promise<Ticket[]> {
-    try {
-      const tickets = await this.getTickets()
-      return tickets.filter((ticket) => ticket.created_by === userId)
-    } catch (error) {
-      console.error("Failed to get user tickets:", error)
-      return []
-    }
-  }
-
-  static async getCategories(): Promise<Category[]> {
-    try {
-      const data = await this.getData()
-      return Array.isArray(data.categories) ? data.categories : []
-    } catch (error) {
-      console.error("Failed to get categories:", error)
-      return []
-    }
-  }
-
-  static async getCommentsByTicket(ticketId: string): Promise<Comment[]> {
-    try {
-      console.log("🔍 Getting comments for ticket:", ticketId)
-      const data = await this.getData()
-      console.log("📊 Database data structure:", {
-        hasComments: !!data.comments,
-        commentsType: typeof data.comments,
-        commentsIsArray: Array.isArray(data.comments),
-        commentsLength: data.comments?.length,
-      })
-
-      const comments = data.comments || []
-
-      if (!Array.isArray(comments)) {
-        console.warn("⚠️ Comments is not an array:", typeof comments)
-        return []
-      }
-
-      const filteredComments = comments.filter((comment: Comment) => comment.ticket_id === ticketId)
-      console.log("📝 Filtered comments:", filteredComments.length)
-
-      return filteredComments
-    } catch (error) {
-      console.error("❌ Failed to get comments:", error)
-      return []
-    }
-  }
-
-  static async createUser(userData: User): Promise<User> {
-    try {
-      console.log("📝 Creating user:", { email: userData.email, role: userData.role })
-
-      const data = await this.getData()
-      const newUser: User = {
-        ...userData,
-        id: userData.id || `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        created_at: userData.created_at || new Date().toISOString(),
-      }
-
-      data.users = data.users || []
-      data.users.push(newUser)
-      await this.updateData(data)
-
-      console.log("✅ User created successfully:", { id: newUser.id, email: newUser.email, role: newUser.role })
-      return newUser
-    } catch (error) {
-      console.error("❌ Failed to create user:", error)
+      console.error("Error saving data:", error)
       throw error
     }
   }
 
-  static async updateUser(id: string, updates: Partial<User>): Promise<User | null> {
-    try {
-      const data = await this.getData()
-      data.users = data.users || []
+  private getDefaultCategories(): Category[] {
+    return [
+      {
+        id: "1",
+        name: "Technical Support",
+        description: "Technical issues and troubleshooting",
+        color: "#3b82f6",
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: "2",
+        name: "Billing",
+        description: "Billing and payment related issues",
+        color: "#10b981",
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: "3",
+        name: "Feature Request",
+        description: "New feature requests and suggestions",
+        color: "#8b5cf6",
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: "4",
+        name: "Bug Report",
+        description: "Bug reports and issues",
+        color: "#ef4444",
+        createdAt: new Date().toISOString(),
+      },
+    ]
+  }
 
-      const userIndex = data.users.findIndex((user: User) => user.id === id)
-      if (userIndex === -1) return null
+  // User methods
+  async getUsers(): Promise<User[]> {
+    const data = await this.getData()
+    return data.users
+  }
 
-      data.users[userIndex] = { ...data.users[userIndex], ...updates }
-      await this.updateData(data)
-      return data.users[userIndex]
-    } catch (error) {
-      console.error("Failed to update user:", error)
-      return null
+  async getUserById(id: string): Promise<User | null> {
+    const data = await this.getData()
+    return data.users.find((user) => user.id === id) || null
+  }
+
+  async getUserByEmail(email: string): Promise<User | null> {
+    const data = await this.getData()
+    return data.users.find((user) => user.email === email) || null
+  }
+
+  async createUser(userData: Omit<User, "id" | "createdAt">): Promise<User> {
+    const data = await this.getData()
+    const newUser: User = {
+      ...userData,
+      id: Date.now().toString(),
+      createdAt: new Date().toISOString(),
     }
+    data.users.push(newUser)
+    await this.saveData(data)
+    return newUser
   }
 
-  static async deleteUser(id: string): Promise<boolean> {
-    try {
-      const data = await this.getData()
-      data.users = data.users || []
+  async updateUser(id: string, updates: Partial<User>): Promise<User | null> {
+    const data = await this.getData()
+    const userIndex = data.users.findIndex((user) => user.id === id)
+    if (userIndex === -1) return null
 
-      const userIndex = data.users.findIndex((user: User) => user.id === id)
-      if (userIndex === -1) return false
+    data.users[userIndex] = { ...data.users[userIndex], ...updates }
+    await this.saveData(data)
+    return data.users[userIndex]
+  }
 
-      data.users.splice(userIndex, 1)
-      await this.updateData(data)
-      return true
-    } catch (error) {
-      console.error("Failed to delete user:", error)
-      return false
+  async deleteUser(id: string): Promise<boolean> {
+    const data = await this.getData()
+    const userIndex = data.users.findIndex((user) => user.id === id)
+    if (userIndex === -1) return false
+
+    data.users.splice(userIndex, 1)
+    await this.saveData(data)
+    return true
+  }
+
+  // Ticket methods
+  async getTickets(): Promise<Ticket[]> {
+    const data = await this.getData()
+    return data.tickets
+  }
+
+  async getTicketById(id: string): Promise<Ticket | null> {
+    const data = await this.getData()
+    return data.tickets.find((ticket) => ticket.id === id) || null
+  }
+
+  async getTicketsByUserId(userId: string): Promise<Ticket[]> {
+    const data = await this.getData()
+    return data.tickets.filter((ticket) => ticket.userId === userId)
+  }
+
+  async getTicketsByAssignee(assigneeId: string): Promise<Ticket[]> {
+    const data = await this.getData()
+    return data.tickets.filter((ticket) => ticket.assignedTo === assigneeId)
+  }
+
+  async createTicket(ticketData: Omit<Ticket, "id" | "createdAt" | "updatedAt">): Promise<Ticket> {
+    const data = await this.getData()
+    const newTicket: Ticket = {
+      ...ticketData,
+      id: Date.now().toString(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      votes: 0,
     }
+    data.tickets.push(newTicket)
+    await this.saveData(data)
+    return newTicket
   }
 
-  static async createTicket(ticketData: Omit<Ticket, "id" | "created_at" | "updated_at">): Promise<Ticket> {
-    try {
-      console.log("🎫 Creating ticket:", ticketData.subject)
-      const data = await this.getData()
-      const newTicket: Ticket = {
-        ...ticketData,
-        id: `ticket-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }
+  async updateTicket(id: string, updates: Partial<Ticket>): Promise<Ticket | null> {
+    const data = await this.getData()
+    const ticketIndex = data.tickets.findIndex((ticket) => ticket.id === id)
+    if (ticketIndex === -1) return null
 
-      data.tickets = data.tickets || []
-      data.tickets.push(newTicket)
-
-      // Update category ticket count
-      if (data.categories) {
-        const category = data.categories.find((cat: Category) => cat.name === ticketData.category)
-        if (category) {
-          category.ticket_count += 1
-        }
-      }
-
-      await this.updateData(data)
-      console.log("✅ Ticket created successfully:", newTicket.id)
-      return newTicket
-    } catch (error) {
-      console.error("❌ Failed to create ticket:", error)
-      throw error
+    data.tickets[ticketIndex] = {
+      ...data.tickets[ticketIndex],
+      ...updates,
+      updatedAt: new Date().toISOString(),
     }
+    await this.saveData(data)
+    return data.tickets[ticketIndex]
   }
 
-  static async updateTicket(id: string, updates: Partial<Ticket>): Promise<Ticket | null> {
-    try {
-      console.log("🔄 Updating ticket:", id, updates)
-      const data = await this.getData()
-      data.tickets = data.tickets || []
+  async deleteTicket(id: string): Promise<boolean> {
+    const data = await this.getData()
+    const ticketIndex = data.tickets.findIndex((ticket) => ticket.id === id)
+    if (ticketIndex === -1) return false
 
-      const ticketIndex = data.tickets.findIndex((ticket: Ticket) => ticket.id === id)
-      if (ticketIndex === -1) return null
+    data.tickets.splice(ticketIndex, 1)
+    // Also delete associated comments
+    data.comments = data.comments.filter((comment) => comment.ticketId !== id)
+    await this.saveData(data)
+    return true
+  }
 
-      data.tickets[ticketIndex] = {
-        ...data.tickets[ticketIndex],
-        ...updates,
-        updated_at: new Date().toISOString(),
-      }
-      await this.updateData(data)
-      console.log("✅ Ticket updated successfully")
-      return data.tickets[ticketIndex]
-    } catch (error) {
-      console.error("❌ Failed to update ticket:", error)
-      return null
+  // Comment methods
+  async getComments(): Promise<Comment[]> {
+    const data = await this.getData()
+    return data.comments
+  }
+
+  async getCommentsByTicket(ticketId: string): Promise<Comment[]> {
+    const data = await this.getData()
+    return data.comments.filter((comment) => comment.ticketId === ticketId)
+  }
+
+  async createComment(commentData: Omit<Comment, "id" | "createdAt">): Promise<Comment> {
+    const data = await this.getData()
+    const newComment: Comment = {
+      ...commentData,
+      id: Date.now().toString(),
+      createdAt: new Date().toISOString(),
     }
+    data.comments.push(newComment)
+    await this.saveData(data)
+    return newComment
   }
 
-  static async deleteTicket(id: string): Promise<boolean> {
-    try {
-      console.log("🗑️ Deleting ticket:", id)
-      const data = await this.getData()
-      data.tickets = data.tickets || []
+  async updateComment(id: string, updates: Partial<Comment>): Promise<Comment | null> {
+    const data = await this.getData()
+    const commentIndex = data.comments.findIndex((comment) => comment.id === id)
+    if (commentIndex === -1) return null
 
-      const ticketIndex = data.tickets.findIndex((ticket: Ticket) => ticket.id === id)
-      if (ticketIndex === -1) return false
+    data.comments[commentIndex] = { ...data.comments[commentIndex], ...updates }
+    await this.saveData(data)
+    return data.comments[commentIndex]
+  }
 
-      // Also delete associated comments
-      data.comments = data.comments || []
-      data.comments = data.comments.filter((comment: Comment) => comment.ticket_id !== id)
+  async deleteComment(id: string): Promise<boolean> {
+    const data = await this.getData()
+    const commentIndex = data.comments.findIndex((comment) => comment.id === id)
+    if (commentIndex === -1) return false
 
-      data.tickets.splice(ticketIndex, 1)
-      await this.updateData(data)
-      console.log("✅ Ticket deleted successfully")
-      return true
-    } catch (error) {
-      console.error("❌ Failed to delete ticket:", error)
-      return false
+    data.comments.splice(commentIndex, 1)
+    await this.saveData(data)
+    return true
+  }
+
+  // Category methods
+  async getCategories(): Promise<Category[]> {
+    const data = await this.getData()
+    return data.categories
+  }
+
+  async getCategoryById(id: string): Promise<Category | null> {
+    const data = await this.getData()
+    return data.categories.find((category) => category.id === id) || null
+  }
+
+  async createCategory(categoryData: Omit<Category, "id" | "createdAt">): Promise<Category> {
+    const data = await this.getData()
+    const newCategory: Category = {
+      ...categoryData,
+      id: Date.now().toString(),
+      createdAt: new Date().toISOString(),
     }
+    data.categories.push(newCategory)
+    await this.saveData(data)
+    return newCategory
   }
 
-  static async createCategory(categoryData: Omit<Category, "id" | "created_at">): Promise<Category> {
-    try {
-      const data = await this.getData()
-      const newCategory: Category = {
-        ...categoryData,
-        id: `cat-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        created_at: new Date().toISOString(),
-      }
+  async updateCategory(id: string, updates: Partial<Category>): Promise<Category | null> {
+    const data = await this.getData()
+    const categoryIndex = data.categories.findIndex((category) => category.id === id)
+    if (categoryIndex === -1) return null
 
-      data.categories = data.categories || []
-      data.categories.push(newCategory)
-      await this.updateData(data)
-      return newCategory
-    } catch (error) {
-      console.error("Failed to create category:", error)
-      throw error
+    data.categories[categoryIndex] = { ...data.categories[categoryIndex], ...updates }
+    await this.saveData(data)
+    return data.categories[categoryIndex]
+  }
+
+  async deleteCategory(id: string): Promise<boolean> {
+    const data = await this.getData()
+    const categoryIndex = data.categories.findIndex((category) => category.id === id)
+    if (categoryIndex === -1) return false
+
+    data.categories.splice(categoryIndex, 1)
+    await this.saveData(data)
+    return true
+  }
+
+  // Analytics methods
+  async getAnalytics() {
+    const data = await this.getData()
+
+    const totalTickets = data.tickets.length
+    const openTickets = data.tickets.filter((t) => t.status === "open").length
+    const inProgressTickets = data.tickets.filter((t) => t.status === "in_progress").length
+    const resolvedTickets = data.tickets.filter((t) => t.status === "resolved").length
+    const closedTickets = data.tickets.filter((t) => t.status === "closed").length
+
+    const totalUsers = data.users.length
+    const adminUsers = data.users.filter((u) => u.role === "admin").length
+    const supportAgents = data.users.filter((u) => u.role === "support_agent").length
+    const endUsers = data.users.filter((u) => u.role === "end_user").length
+
+    const totalComments = data.comments.length
+
+    return {
+      tickets: {
+        total: totalTickets,
+        open: openTickets,
+        inProgress: inProgressTickets,
+        resolved: resolvedTickets,
+        closed: closedTickets,
+      },
+      users: {
+        total: totalUsers,
+        admin: adminUsers,
+        supportAgent: supportAgents,
+        endUser: endUsers,
+      },
+      comments: {
+        total: totalComments,
+      },
     }
-  }
-
-  static async updateCategory(id: string, updates: Partial<Category>): Promise<Category | null> {
-    try {
-      const data = await this.getData()
-      data.categories = data.categories || []
-
-      const categoryIndex = data.categories.findIndex((cat: Category) => cat.id === id)
-      if (categoryIndex === -1) return null
-
-      data.categories[categoryIndex] = { ...data.categories[categoryIndex], ...updates }
-      await this.updateData(data)
-      return data.categories[categoryIndex]
-    } catch (error) {
-      console.error("Failed to update category:", error)
-      return null
-    }
-  }
-
-  static async deleteCategory(id: string): Promise<boolean> {
-    try {
-      const data = await this.getData()
-      data.categories = data.categories || []
-
-      const categoryIndex = data.categories.findIndex((cat: Category) => cat.id === id)
-      if (categoryIndex === -1) return false
-
-      data.categories.splice(categoryIndex, 1)
-      await this.updateData(data)
-      return true
-    } catch (error) {
-      console.error("Failed to delete category:", error)
-      return false
-    }
-  }
-
-  static async addComment(commentData: Omit<Comment, "id" | "created_at">): Promise<Comment> {
-    try {
-      console.log("💬 Adding comment:", commentData)
-
-      const data = await this.getData()
-      const newComment: Comment = {
-        ...commentData,
-        id: `comment-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        created_at: new Date().toISOString(),
-      }
-
-      data.comments = data.comments || []
-      data.comments.push(newComment)
-
-      // Update ticket comment count
-      data.tickets = data.tickets || []
-      const ticket = data.tickets.find((t: Ticket) => t.id === commentData.ticket_id)
-      if (ticket) {
-        ticket.comments_count = (ticket.comments_count || 0) + 1
-        ticket.updated_at = new Date().toISOString()
-      }
-
-      await this.updateData(data)
-      console.log("✅ Comment added successfully:", newComment.id)
-      return newComment
-    } catch (error) {
-      console.error("❌ Failed to add comment:", error)
-      throw error
-    }
-  }
-
-  // Initialize the service
-  static async initialize() {
-    await JSONBlobService.initialize()
-  }
-
-  // Get blob ID for debugging
-  static getBlobId(): string | null {
-    return JSONBlobService.getBlobId()
   }
 }
+
+export const databaseService = DatabaseService.getInstance()

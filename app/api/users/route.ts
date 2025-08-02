@@ -1,49 +1,50 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { DatabaseService } from "@/lib/database"
 
+const databaseService = DatabaseService.getInstance()
+
 export async function GET(request: NextRequest) {
   try {
-    const users = await DatabaseService.getUsers()
+    const { searchParams } = new URL(request.url)
+    const role = searchParams.get("role")
+
+    let users = await databaseService.getUsers()
+
+    if (role) {
+      users = users.filter((user) => user.role === role)
+    }
+
     return NextResponse.json({ success: true, users })
   } catch (error) {
-    console.error("❌ Get users error:", error)
-    return NextResponse.json({ error: "Failed to get users" }, { status: 500 })
+    console.error("Get users error:", error)
+    return NextResponse.json({ success: false, error: "Failed to fetch users" }, { status: 500 })
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { name, email, role } = body
+    const { email, name, role } = body
 
-    if (!name || !email) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
+    if (!email || !name || !role) {
+      return NextResponse.json({ success: false, error: "Missing required fields" }, { status: 400 })
     }
 
     // Check if user already exists
-    const existingUser = await DatabaseService.getUserByEmail(email)
+    const existingUser = await databaseService.getUserByEmail(email)
     if (existingUser) {
-      return NextResponse.json({ error: "User already exists" }, { status: 409 })
+      return NextResponse.json({ success: false, error: "User already exists" }, { status: 400 })
     }
 
-    const user = await DatabaseService.createUser({
-      id: `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      name,
+    const user = await databaseService.createUser({
       email,
-      password: "default", // In a real app, this would be properly handled
-      role: role || "end_user",
-      created_at: new Date().toISOString(),
-      status: "active",
-      profile: {
-        phone: "",
-        department: "",
-        avatar: `/placeholder.svg?height=40&width=40&query=${name}`,
-      },
+      name,
+      role,
     })
 
     return NextResponse.json({ success: true, user })
   } catch (error) {
-    console.error("❌ Create user error:", error)
-    return NextResponse.json({ error: "Failed to create user" }, { status: 500 })
+    console.error("Create user error:", error)
+    return NextResponse.json({ success: false, error: "Failed to create user" }, { status: 500 })
   }
 }
